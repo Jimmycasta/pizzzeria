@@ -1,5 +1,6 @@
 package com.jimmycasta.pizzeria.services;
 
+import com.jimmycasta.pizzeria.Exception.EmailApiException;
 import com.jimmycasta.pizzeria.entities.PizzaEntity;
 import com.jimmycasta.pizzeria.repositories.PizzaPageRepository;
 import com.jimmycasta.pizzeria.repositories.PizzaRepository;
@@ -63,7 +64,6 @@ public class PizzaService {
     @Transactional
     public void setUpdatePrice(int idPizza, double newPrice) {
         pizzaRepository.updatePrice(idPizza, newPrice);
-
     }
 
     public boolean exists(int idPizza) {

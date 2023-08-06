@@ -4,13 +4,15 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 @Entity
 @Table(name = "pizza")
 @Getter
 @Setter
 @NoArgsConstructor
-public class PizzaEntity {
+@EntityListeners(AuditingEntityListener.class)
+public class PizzaEntity extends AuditableEntity{
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -33,4 +35,6 @@ public class PizzaEntity {
 
     @Column(columnDefinition = "TINYINT", nullable = false)
     private Boolean available;
+
+
 }
