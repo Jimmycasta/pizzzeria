@@ -1,0 +1,593 @@
+########################### Configuración de Spring Security 3.1.2 Autenticación Basica ########################### 
+
+- Habilitar Spring Security en el Pom:
+
+	<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-security</artifactId>
+    <version>3.1.2</version>
+	</dependency>
+	
+########################### Clase SecurityConfig ###########################
+
+- La clase SecurityConfig es donde se aplicaran todos los filtros a los EndPoint y donde se configura
+	el metodo de autenticación.
+	
+- Crear un paquete con nombre security para guardar las clases de configuración.
+
+- Crear una clase SecurityConfig dentro del paquete security.
+
+- Anotar la clase SecurityConfig con @Configuration, para que sea reconocida como un Bean y pueda ser injectada.
+
+- Crear metodo filterChain que retorne un SecurityFilterChain y anotarlo con @Bean, dentro de la clase SecurityConfig.
+
+		Ejemplo:
+		
+	@Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+                .authorizeHttpRequests(customizedRequests -> {
+                            customizedRequests
+                                    .anyRequest()
+                                    .authenticated();
+                        }
+                ).httpBasic(Customizer.withDefaults());
+        return http.build();
+    }
+}
+
+########################### Deshabilitar csrf Api StateLess ###########################
+
+- Deshabilitar protección csrf (Deprecated ) en el metodo filterChain, se hace para que la Api sea StateLess.
+	
+	@Bean
+		public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+			http
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(Customizer.withDefaults())
+
+########################### Configuración global de Cors  ###########################
+
+	Nota: Es importante habilitar Cors para que la API se pueda consumir desde otros origenes (Origenes Cruzados "CORS")
+		como por ejemplo otras Api o aplicaciones.
+
+- Se habilita cors agregando el siguiente linea de codigo "solo la que dice cors":
+
+	@Bean
+		public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+			http
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(Customizer.withDefaults())
+		
+- Agregar la anotación @Crossorigin en el metodo que se va a consumir y poner la URL del segundo origen.
+		
+	Ejemplo:
+	
+	@GetMapping("/available")
+    @CrossOrigin(origins = "URL y puerto del otro origen")
+    public Page<PizzaEntity> getAvailable(@RequestParam(defaultValue = "0") int pageNumber.... resto de codigo
+	
+- Tambien se puede crear una configuración global para cors:
+
+- Se crea una clase CorsConfig dentro del paquete security y se anota con @Configuration
+
+- Se crea un metodo que retorne CorsConfigurationSource y se anota con @Bean. 	
+
+		Ejemplo de metodo:
+		
+		@Configuration
+			public class CorsConfig {
+			CorsConfigurationSource corsConfigurationSource() {
+				CorsConfiguration corsConfiguration = new CorsConfiguration();
+
+				//corsConfiguration.setAllowedOrigins(List.of("http://localhost:4200"));
+				corsConfiguration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE"));
+				corsConfiguration.setAllowedHeaders(List.of("*"));
+
+				UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+				source.registerCorsConfiguration("/**", corsConfiguration);
+				return source;
+			}
+		}
+		
+########################### Configuración de requestMatchers ###########################
+
+- La configuración de requestMatchers se realiza en la clase SecurityConfig, metodo filterChain.
+	Nota: En el patterns un * quiere decir primer nivel, ** quiere decir de ahí en adelante en el patterns.
+
+	se escriben despues de:
+	
+	.authorizeHttpRequests(customizedRequests -> {
+		customizedRequests
+
+	.requestMatchers(HttpMethod.GET,"/api/pizzas/**").hasAnyRole("ADMIN","CUSTOMER") //Permite GET a varios Roles (ADMIN, 	CUSTOMER)al pattern especificado.
+	.requestMatchers(HttpMethod.POST, "/api/pizzas/**").hasRole("ADMIN") // Permite POST a un solo Role (ADMIN) en el pattern especificado
+	.requestMatchers(HttpMethod.PUT).hasRole("ADMIN") // Solo el usuario (ADMIN) puede usar el método PUT, todos los pattern.
+	.requestMatchers("/api/orders/**").hasRole("ADMIN")
+	.requestMatchers(HttpMethod.GET, "/api/pizzas/**").permitAll() //Permite el método GET a todos, el en pattern.
+	.requestMatchers(HttpMethod.PUT).denyAll()  //Deniega el método PUT a todos
+
+########################### PasswordEncoder BCryptPasswordEncoder ###########################
+
+       **** Metodo para ecriptar las contraseñas en Clase SecurityConfig ****
+	   
+	   @Bean
+		public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+		}
+ 
+########################### Configuratión Base de Datos de usuarios ###########################
+
+- Crear un Entity "UserEntity" con las propiedades de usuario que va a tener la BD.
+	
+	Ejemplo:
+	
+	@Entity
+	@Table(name = "user")
+	@Getter
+	@Setter
+	@NoArgsConstructor
+	public class UserEntity {
+
+		@Id
+		@Column(nullable = false, length = 20)
+		private String username;
+
+		@Column(nullable = false, length = 200)
+		private String password;
+
+		@Column(length = 50)
+		private String email;
+
+		@Column(nullable = false, columnDefinition = "TINYINT")
+		private Boolean locked;
+
+		@Column(nullable = false, columnDefinition = "TINYINT")
+		private Boolean disabled;
+
+		@OneToMany(mappedBy = "user", fetch = FetchType.EAGER)
+		private List<UserRoleEntity> roles;
+	}
+
+- Recordar que Spring Security usa claves encriptadas, en la base de datos deben de estar tambien encriptadas,
+	para pruebas usar bcrpyt.online.
+
+- Crear la clase UserSecurityService en el paquete services y se anota con @Service
+
+- Se implementa la interfaz UserDetailsService y se implementa el metodo loadUserByUsername que tiene.
+
+- Crear el Repositorio UserRepository y que extienda de JpaRepository
+	
+	Ejemplo:
+	
+	public interface UserRepository extends JpaRepository<UserEntity,String> {
+}
+
+- Se injecta UserRepository en la clase UserSecurityService.
+
+	 private final UserRepository userRepository;
+	 
+     @Autowired
+     public UserSecurityService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+	
+- Implementar la clase loadUserByUsername con el siguiente codigo.
+
+	En este ejemplo todos los usuarios tienen permiso de ADMIN, hay que cambiar eso mas adelante.
+	
+	    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+
+        //Se busca el usuario en la bd y se carga en userEntity si no está lanza una excepción.
+        UserEntity userEntity = this.userRepository.findById(username)
+                .orElseThrow(() -> new UsernameNotFoundException("No se encontró el usuario " + username));
+
+        //Trae los roles de la BD los pasa String y los convierte a un Array.
+        String[] roles = userEntity.getRoles().stream().map(UserRoleEntity::getRole).toArray(String[]::new);
+
+        //Si el usuario esta, se construye el UserDetails (usuario) y se retorna.
+        return User.builder()
+                .username(userEntity.getUsername())
+                .password(userEntity.getPassword())
+                .roles(roles)
+                //.authorities(this.grantedAuthority(roles))
+                .accountLocked(userEntity.getLocked())
+                .disabled(userEntity.getDisabled())
+                .build();
+    }
+	
+########################### Roles de Usuario en la Base de Datos ###########################
+
+- Crear un Entity UserRoleEntity en el paquete entities con las propiedades de los Roles.
+
+	Ejemplo:
+	
+	@Entity
+	@Table(name = "user_role")
+	@Getter
+	@Setter
+	@NoArgsConstructor
+	@IdClass(UserRoleId.class)
+	public class UserRoleEntity {
+    
+		@Id
+		@Column(nullable = false, length = 20)
+		private String username;
+
+		@Id
+		@Column(nullable = false, length = 20)
+		private String role;
+
+		@Column(name = "granted_date", nullable = false, columnDefinition = "DATE")
+		private LocalDate grantedDate;
+
+		@ManyToOne
+		@JoinColumn(name = "username", referencedColumnName = "username", insertable = false, updatable = false)
+		private UserEntity user;
+		
+- Crear la relación entre las tablas UserRoleEntity propiedad: "private UserEntity user;
+	y en UserEntity la relación contraria, ver ejemplos.
+
+- Crear una clase UserRoleId con los dos Id "username, role" é implementar los metodos equals y hashCode é 
+	implementar Serializable.
+
+	Ejemplo:
+	
+	@Getter
+	@Setter
+	@NoArgsConstructor
+	@AllArgsConstructor
+		public class UserRoleId implements Serializable {
+			private String username;
+			private String role;
+			@Override
+			public boolean equals(Object o) {
+				if (this == o) return true;
+				if (o == null || getClass() != o.getClass()) return false;
+				UserRoleId that = (UserRoleId) o;
+				return Objects.equals(username, that.username) && Objects.equals(role, that.role);
+			}
+			@Override
+			public int hashCode() {
+				return Objects.hash(username, role);
+			}
+		}
+		
+- En la clase UserSecurityService cambiar la configuración de Roles.
+
+- Hay que traer de la base de datos los roles de usuario, hay que hacer cambios en la clase UserSecurityService:
+	
+	Agregar el siguiente codigo:
+	
+	//Trae los roles de la BD los pasa String y los convierte a un Array.
+    String[] roles = userEntity.getRoles().stream().map(UserRoleEntity::getRole).toArray(String[]::new);
+	
+- En el metodo loadUserByUsername cambiar la linea donde se asigna los roles y poner el nuevo Array "roles"
+
+	.roles(roles)
+	
+- Hasta aqui deberia de funcionar correctamente Spring Security con autenticación Basica.
+	mas delante de cambia a autenticación con JWT.
+	
+########################### Configuración de Authorities ###########################
+
+	Se entiende como un rol un conjunto de authorities. Es decir, un autority es un permiso puntual mientras un rol un conjunto de permisos.
+	
+	Para agregar los permisos authorities agregar el siguiente codigo:
+
+- En la clase UserSecurityService crear metodo llamado getAuthorities que retorne un arreglo tipo String[] 
+	y recibe un String role, este metodo es para asignar los permisos especificos.
+	
+    en el metodo implementar el siguiente codigo:
+	
+	  private String[] getAuthorities(String role) {
+        
+        // si el usuario que viene en role tiene el rol de "ADMIN" ó "CUSTOMER", le crear un authorities que se llama "random_order"
+        if ("ADMIN".equals(role) || "CUSTOMER".equals(role)) {
+            return new String[]{"random_order"};
+        }
+        //si no es ninguno se retorna un arreglo vacío;
+        return new String[]{};
+    }
+	
+- en la clase UserSecurityService crear un metodo llamado grantedAuthority que retorne una Lista tipo GrantedAuthority,
+	recibe como parametro el arreglo roles.
+	
+	Agregar en el metodo el siguiente codigo:
+	
+	    private List<GrantedAuthority> grantedAuthority(String[] roles) {
+        List<GrantedAuthority> authorities = new ArrayList<>(roles.length);
+
+        for (String role : roles) {
+            authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
+            for (String authority : this.getAuthorities(role)) {
+                authorities.add(new SimpleGrantedAuthority(authority));
+            }
+        }
+        return authorities;
+    }
+	
+- Ahora en la clase UserSecurityService metodo loadUserByUsername, en el valor de retorno cambiar las siguiente linea:
+
+	//.roles(roles)   "comentar linea"
+      .authorities(this.grantedAuthority(roles))  "agregar linea"
+	
+- En la clase SecurityConfig en los requestMatchers se agrega el nuevo permiso con el nuevo authorities:
+
+	Se agrega un permiso de tipo authorities llamado"random_order" que se creo con el metodo getAuthorities de la clase
+	UserSecurityService.
+
+	.requestMatchers("/api/orders/random").hasAuthority("random_order")
+	
+	Nota:
+	Hay que recordar que el orden de los permisos o requestMatchers es muy importante en la aplicacion.
+	
+########################### Method Security ###########################
+
+	Esta configuración en opcional, ofrece seguridad a nivel de metodo, es decir permite o deniega ejecutar metodos a ciertos 
+	usuarios o roles.
+
+- Primero dentro de el service hay que anotar el metodo que se quiere restringir con la anotacion: @Secured("ROLE_ADMIN") 
+	y agregar los roles. solo los roles que se agreguen podran ejecutar este metodo.
+
+- Despues en la clase SecurityConfig hay que anotar la clase con la anotacion @EnableMethodSecurity(securedEnable = true)
+
+########################### Seguridad con JWT ###########################
+
+-Lo primero es agregar en el Pom las dependencias de JWT, desde MVNREPOSITORY.
+
+- Crear una clase que llame JwtUtil en el paquete Security é injectarla con la anotación @Component.
+
+- Dentro de JwtUtil crear una variable de tipo String que se llame SECRET_KEY que contendra la clave que se le pasa	
+	al algoritmo.
+	
+- Dentro de JwtUtil crear una variable de tipo String que se llame SECRET_KEY, esta tendra la clave que se usara en	
+	el Algoritmo.
+
+	 private static final String SECRET_KEY = "clase";
+	
+- Dentro de JwtUtil crear una variable de tipo Algorithm, que especifica cual algoritmo se va a usar para crear 
+	el JWT.
+
+	private static final Algorithm  ALGORITHM = Algorithm.HMAC256(SECRET_KEY);
+
+	
+-  crear en JwtUtil un metodo que retorne un String con nombre create y que reciba como parametro un  String username,
+	esta clase sera la que cree el JWT para un usuario.
+	
+		La clase JwtUtil debe quedar asi:
+	
+	    public String create(String username){
+
+        return JWT.create()
+                .withSubject(username)
+                .withIssuer("Nombre_Empresa")
+                .withIssuedAt(new Date())
+                .withExpiresAt(new Date(System.currentTimeMillis() + TimeUnit.DAYS.toMillis(15)))
+                .sign(ALGORITHM);
+    }
+}
+
+- Crear un clase DTO que se llame LoginDto y tenga como propiedades el usuario y password, anotarlo con @Data,
+	este se van a usar para el inicio de sección.
+	
+- En la clase SecurityConfig crear un metodo anotado con @Bean llamado authenticationManager y que retorne
+	un AuthenticationManager, recibe como parametro un AuthenticationConfiguration, que se injectara en el controlador
+	que se va a crear mas abajo.
+	
+	debe de quedar asi:
+	
+	@Bean
+	public AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
+		return configuration.getAuthenticationManager();
+		}
+	
+- Crear un nuevo Controller de pruebas que se llame AuthController:
+
+	implementar el siguiente codigo:
+
+	@RestController
+	@RequestMapping("/api/auth")
+	public class AuthController {
+
+		private final AuthenticationManager authenticationManager;
+		private final JwtUtil jwtUtil;
+		@Autowired
+		public AuthController(AuthenticationManager authenticationManager, JwtUtil jwtUtil) {
+			this.authenticationManager = authenticationManager;
+			this.jwtUtil = jwtUtil;
+		}
+		@PostMapping("/login")
+		public ResponseEntity<Void> login(@RequestBody LoginDto loginDto) {
+		
+			UsernamePasswordAuthenticationToken login = new UsernamePasswordAuthenticationToken(loginDto.getUsername(), loginDto.getPassword());
+			Authentication authentication = this.authenticationManager.authenticate(login);
+			String jwt = this.jwtUtil.create(loginDto.getUsername());
+			return ResponseEntity.ok().header(HttpHeaders.AUTHORIZATION, jwt).build();
+		}
+	}
+
+- En SecurityConfig hay que decirle que debe de permitir a todos el acceso al EndPoint que se acaba de crear,
+	debe de ir de primero en el orden de requestMatchers.
+
+	.requestMatchers("/api/auth/**").permitAll()
+	
+########################### Servicio para Validar JWT ###########################
+
+- En la clase JwtUtil crear un metodo que retorne un booleano y que se llame isValid
+	recibe como parametro un jwt de tipo String.
+	
+	implementar el siguiente codigo en el metodo:
+	
+	    //Método usado para verificar el Token JWT.
+		public boolean isValid(String jwt) {
+			try {
+				JWT.require(ALGORITHM)
+                    .build()
+                    .verify(jwt);
+				return true;
+			} catch (JWTVerificationException e){
+				return false;
+				}
+			}
+		}
+
+- Crear otro metodo que retorne el usuario que inicio sección, para usar en filtro personalizado.
+
+	//retorna el usuario que se verifico, se va a usar en un filtro personalizado.
+    public String getUserName(String jwt){
+        return JWT.require(ALGORITHM)
+                .build()
+                .verify(jwt)
+                .getSubject();
+		}
+	}
+	
+########################### Filtro personalizado para validar el JWT  ###########################
+
+Hay que crear un filtro peronalizado que haga parte del Spring Security filterChain y valide las peticiones
+	que requieres autenticación dentro de la API.
+
+- Crear una clase que se llame JwtFilter dentro del paquete Security, anotarla con @Component y que extienda
+	de OncePerRequestFilter.
+	
+	Este metodo consta de los siguientes 4 procesos:
+	
+	// 1. Validar que sea un Header Authorization válido.
+	// 2. Validar que el JWT sea válido.
+	// 3. Cargar el usuario del UserDetailsService, es el que viene el el JWT y lo valida con el usuario de BD.
+	// 4. Cargar el usuario en el contexto de seguridad.
+	
+	La clase debe de quedar asi:
+	
+	@Component
+	public class JwtFilter extends OncePerRequestFilter {
+    private final JwtUtil jwtUtil;
+    private final UserDetailsService userDetailsService;
+    @Autowired
+    public JwtFilter(JwtUtil jwtUtil, UserDetailsService userDetailsService) {
+
+        this.jwtUtil = jwtUtil;
+        this.userDetailsService = userDetailsService;
+    }
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
+
+        // 1. Validar que sea un Header Authorization válido.
+        String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
+
+        if (authHeader == null || authHeader.isEmpty() || !authHeader.startsWith("Bearer")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        // 2. Validar que el JWT sea válido.
+        String jwt = authHeader.split(" ")[1].trim();
+        if (!jwtUtil.isValid(jwt)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        // 3. Cargar el usuario del UserDetailsService, es el que viene el el JWT y lo valida con el usuario de BD.
+        String username = this.jwtUtil.getUserName(jwt);
+        User user = (User) this.userDetailsService.loadUserByUsername(username);
+
+        // 4. Cargar el usuario en el contexto de seguridad.
+        UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(
+                user.getUsername(), user.getPassword(), user.getAuthorities()
+        );
+        authenticationToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+        SecurityContextHolder.getContext().setAuthentication(authenticationToken);
+        filterChain.doFilter(request, response);
+    }
+}
+	
+########################### Aplicar Filtro en la configuración ###########################
+
+- Hay que agregar el filtro "JwtFilter" que se acaba de crear en la configuración del la clase SecurityConfig.
+
+- Injectar en SecurityConfig la clase JwtFilter:
+
+	private final JwtFilter jwtFilter;
+	@Autowired
+	public SecurityConfig(JwtFilter jwtFilter) {
+		this.jwtFilter = jwtFilter;
+
+- Hay que cambiar la linea donde se configura el tipo de autenticación .httpBasic(); "Deprecated" ó 
+	.authenticated(); por el nuevo filtro "JwtFilter"
+	
+	La clase SecurityConfig completa debe de quedar de la siguiente  forma:
+	
+	@Configuration
+	public class SecurityConfig {
+    private final JwtFilter jwtFilter;
+    @Autowired
+    public SecurityConfig(JwtFilter jwtFilter) {
+        this.jwtFilter = jwtFilter;
+    }
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(Customizer.withDefaults())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(customizedRequests -> {
+                    customizedRequests
+
+                            .requestMatchers("/api/auth/**").permitAll()
+                            .requestMatchers(HttpMethod.GET, "/api/pizzas/**").hasAnyRole("ADMIN", "CUSTOMER") //Permite GET a varios Roles (ADMIN, CUSTOMER)al pattern especificado.
+                            .requestMatchers(HttpMethod.POST, "/api/pizzas/**").hasRole("ADMIN") // Permite POST a un solo Role (ADMIN) en el pattern especificado
+                            .requestMatchers(HttpMethod.PUT).hasRole("ADMIN") // Solo el usuario (ADMIN) puede usar el método PUT, todos los pattern.
+                            .requestMatchers("/api/orders/**").hasRole("ADMIN")
+                            .anyRequest()
+                            .authenticated();
+                })
+                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+        //.httpBasic(Customizer.withDefaults()); //Seguridad con Basic Authentication.
+        return http.build();
+    }
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
+        return configuration.getAuthenticationManager();
+    }
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+
+ *** Hasta aqui deberia de funcionar la configuración con autenticación con JWT Token,
+	revisar todas las injecciones, las negaciones en los if, las anotaciones @Bean @Service. ***
+	
+###############################################################################
+########################### Fin de la configuración ###########################
+###############################################################################
+	
+
+
+
+
+	
+	
+	
+
+
+ 
+
+
+
+	
+
+	
+	
+
+	
+	
+	
+ 
+	
+	
+	
+
+
+
+
