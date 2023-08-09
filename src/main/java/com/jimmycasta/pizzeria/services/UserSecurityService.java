@@ -45,7 +45,6 @@ public class UserSecurityService implements UserDetailsService {
                 .disabled(userEntity.getDisabled())
                 .build();
     }
-
     //****************configuración de authorities ********************
 
     //Método para asignar los authorities específicos.
@@ -58,12 +57,12 @@ public class UserSecurityService implements UserDetailsService {
         //si no es ninguno se retorna un arreglo vacío;
         return new String[]{};
     }
-
     private List<GrantedAuthority> grantedAuthority(String[] roles) {
         List<GrantedAuthority> authorities = new ArrayList<>(roles.length);
 
         for (String role : roles) {
             authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
+
             for (String authority : this.getAuthorities(role)) {
                 authorities.add(new SimpleGrantedAuthority(authority));
             }
